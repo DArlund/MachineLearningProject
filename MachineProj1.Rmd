@@ -1,0 +1,79 @@
+---
+title: "Understanding Exercise Types From Activity Tracker Data Via Random Forests Modeling"
+author: "David Arlund"
+date: "Sunday, June 21, 2015"
+output: html_document
+---
+
+## Summary
+
+In this project we are tasked with building a model based on data from various accelerometers placed on the belt, forearm, arm, and dumbell of 6 participants. This data was generously provided for this study from the paper *Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises*. We will use the Random Forests method to determine the best model for predicting which of five exercises is being performed. We will use a K-Folds resampling method for cross validation.
+
+## Data Loading and Cleaning
+
+Our first task in this endeavor is to get our data into a useful form. It is a very large data set with 160 rows and 19622 columns, so we need to make some cuts to allow for a resonable computation time. Looking at our data set, we have a large number of columns which measure secondary variables such as skewness, min and max, and variance. We will select to remove all such data and focus purely on the direct physical measurements such as position (x, y, z), acceleration, and orientation (roll, pitch, yaw) for each of the four accelerometers. We will also discard data relating to user and the time the data was recorded, as that is less useful for predicting future data. We will also go ahead and split the data so that our predicted variable, classe, is in a separate variable as a factor. The code that loads and trims this data can be found in Appendix 1. This leaves us with 52 predictor variables.
+
+## Random Forest Modeling
+
+Now that we have our data, it is time to build a model. We chose to use the Random Forests method for this project due to its generally high level of accuracy. We will offset the generally long computation times by the use of parallel processing with the doParallel package. We also choose to use the cross validation method of K-folds with three folds. In Appendix 2 we use the rfcv function to approximate the error rate when using three folds with this data, and using all the variables given to us, our error rate is just above 0.5%, which is very strong, so we will use all 52 predictor variables and 3 folds.
+
+Now we fit the model as shown in Appendix 3. We are fitting this model onto 100% of our data, but due to the K-Folds methodology, we are actually fitting 67% of the data and testing against 33%, and repeating this three times, each time with a different third set aside for cross validation. This helps protect against overfitting our training data, and is a sufficient number of folds with this data set to ensure a high level of accuracy. Our final model had an accuracy of 99.3%, which is slightly lower than we predicted (99.5%), but is still a very good fit.
+
+Due to the nature of Random Forest Models, it is difficult to visualize what this model fit is, but we can tell a few interesting things by looking at the plot of variable importance. First, we see that the orientation (roll, pitch, yaw) of the belt sensor were very important predictors for this data. Almost immediately following that is the spatial location (x, y, z) of the dumbbell in terms of importance.
+
+These two facts are really interesting features because it means that if we needed to ever build a new model or a smaller one, or even if we were to repeat this experiment on a smaller scale, we would be well served by focusing our measurements on those two sets of values. Put another way, if we could only afford two specific types of sensors and wanted to repeat this study, we would want an orientation sensor on the belt and a location sensor on the dumbbell. (It is important to note that most accelerometers can do all of these functions, but with clever design, we could actually only use one accelerometer on the belt, and use a visual sensor to track the motion of the dumbbell, and still capture a somewhat reasonable level of accuracy.)
+
+## Conclusions
+
+Overall, we successfully generated a Random Forests Model on a good subset (52 predictors) of our Training data set. We followed best practices of K-Fold sampling to reduce the effect of overfitting, and had a final resampling accuracy of 99.3%. When this model was applied to our Testing data set, it was able to correctly identify 20 out of 20 elements in our Testing set. 
+
+Overall, we can say that our model was successful at predicting the correct type of exercise performed using the output of four distinct accelerometer sensors.
+
+## Appendix
+
+### Appendix 1: Loading and Cleaning Data
+
+```{r, cache=TRUE}
+Training <- read.csv("pml-training.csv")
+Name <- names(Training)
+keep <- !logical(160)
+keep[grep("kurtosis",Name)] <- FALSE
+keep[grep("skewness",Name)] <- FALSE
+keep[grep("max",Name)] <- FALSE
+keep[grep("min",Name)] <- FALSE
+keep[grep("amplitude",Name)] <- FALSE
+keep[grep("var",Name)] <- FALSE
+keep[grep("avg",Name)] <- FALSE
+keep[grep("stddev",Name)] <- FALSE
+keep[c(1:7,160)] <- FALSE
+TrimTraining <- Training[,keep]
+Classe <- factor(Training[,160])
+```
+
+## Appendix 2: Cross Validation
+
+```{r,cache=TRUE}
+library(caret)
+library(doParallel)
+library(randomForest)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+CrossValid3 <- rfcv(TrimTraining,Classe,cv.fold=3)
+CrossValid3$error.cv
+with(CrossValid3, plot(n.var, error.cv, log="x", type="o", lwd=2))
+```
+
+## Appendix 3: Random Trees Model Fitting
+
+```{r, cache=TRUE}
+set.seed(5000)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+tc <- trainControl(method="cv", number=3)
+modFitRF <- train(Classe ~ ., method="rf", data= TrimTraining, trainControl=tc)
+stopCluster(cl)
+```
+```{r, cache=TRUE,fig.height=6}
+modFitRF
+plot(varImp(modFitRF))
+```
